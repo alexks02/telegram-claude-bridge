@@ -135,3 +135,13 @@ export const SUMMARY_EXCERPT_CHARS = 6000;
 
 /** Quiet time after which a tab lets go of its session; 0 disables. */
 export const HANDOFF_IDLE_MS = Number(process.env.HANDOFF_IDLE_MS ?? 60000);
+
+/**
+ * Drop incoming messages older than this many seconds; 0 disables.
+ *
+ * Telegram redelivers unacknowledged updates and holds a backlog while the bot
+ * is down (up to 24h), so a crash, a redeploy or a laptop waking from sleep can
+ * replay old requests. Anything older than this window is ignored so the bridge
+ * does not act on stale work.
+ */
+export const STALE_MESSAGE_SECONDS = Number(process.env.STALE_MESSAGE_SECONDS ?? 300);

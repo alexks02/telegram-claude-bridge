@@ -8,7 +8,8 @@
  *
  *   { "tabs": { "<chat>:<topic>": "<project path>" },
  *     "sessions": { "<chat>:<topic>|<path>": <id | entry> },
- *     "modes": { "<chat>:<topic>": "plan" | "acceptEdits" | … } }
+ *     "modes": { "<chat>:<topic>": "plan" | "acceptEdits" | … },
+ *     "models": { "<chat>:<topic>": "opus" | "haiku" | … } }
  *
  * Each section is written on its own (a tab switch never rewrites session data
  * and vice versa) by reading the file, replacing one key, and writing it back —
@@ -24,6 +25,8 @@ export interface BridgeState {
   sessions: Record<string, unknown>;
   /** Per-tab Claude permission mode; absent means the CLI default. */
   modes: Record<string, string>;
+  /** Per-tab Claude model; absent means the CLI default. */
+  models: Record<string, string>;
 }
 
 const legacySessions = resolve(scriptDir, '..', 'sessions.json');
@@ -34,7 +37,7 @@ function migrate(): void {
   if (existsSync(stateFile)) return;
   if (!existsSync(legacySessions) && !existsSync(legacyTabs)) return;
 
-  const state: BridgeState = { tabs: {}, sessions: {}, modes: {} };
+  const state: BridgeState = { tabs: {}, sessions: {}, modes: {}, models: {} };
   try {
     state.sessions = JSON.parse(readFileSync(legacySessions, 'utf8'));
   } catch {
@@ -65,9 +68,14 @@ export function readState(): BridgeState {
   migrate();
   try {
     const raw = JSON.parse(readFileSync(stateFile, 'utf8')) as Partial<BridgeState>;
-    return { tabs: raw.tabs ?? {}, sessions: raw.sessions ?? {}, modes: raw.modes ?? {} };
+    return {
+      tabs: raw.tabs ?? {},
+      sessions: raw.sessions ?? {},
+      modes: raw.modes ?? {},
+      models: raw.models ?? {},
+    };
   } catch {
-    return { tabs: {}, sessions: {}, modes: {} }; // No file yet, or corrupted — start fresh
+    return { tabs: {}, sessions: {}, modes: {}, models: {} }; // No file yet, or corrupted
   }
 }
 
@@ -93,6 +101,13 @@ export function patchSessions(sessions: Record<string, unknown>): void {
 export function patchModes(modes: Record<string, string>): void {
   const state = readState();
   state.modes = modes;
+  writeState(state);
+}
+
+/** Replace the models section, leaving the rest untouched. */
+export function patchModels(models: Record<string, string>): void {
+  const state = readState();
+  state.models = models;
   writeState(state);
 }
 

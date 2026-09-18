@@ -26,6 +26,7 @@ and `WORKSPACE_ROOT` are required.
 | `ALIASES` | no | — | Short names for projects, e.g. `api:my-backend,web:my-frontend` (comma-separated `alias:directory` pairs) |
 | `CLAUDE_TIMEOUT_MS` | no | `600000` | How long a single Claude run may take before it's killed |
 | `HANDOFF_IDLE_MS` | no | `60000` | Quiet time after which a tab lets go of its session; `0` disables |
+| `STALE_MESSAGE_SECONDS` | no | `300` | Ignore messages older than this — drops replayed backlog after downtime; `0` disables |
 | `SUMMARY_MODEL` | no | `claude-haiku-4-5-20251001` | Model that summarises a `/sessions` preview; `off` disables summaries |
 | `SUMMARY_TIMEOUT_MS` | no | `60000` | How long that summary may take before it is abandoned |
 | `SESSION_LIVE_WINDOW_MS` | no | `300000` | A transcript touched more recently than this counts as still open |
@@ -104,6 +105,10 @@ npm (a systemd unit, a launchd plist), call it directly: `node bridge.mjs start|
 hangs. `bg:status` also reports a `claude` run in flight (macOS/Linux) — restarting then would
 kill it. `npm run bg` rebuilds `dist/` every time, so a start always picks up current source.
 
+Telegram redelivers unacknowledged updates and queues a backlog while the bot is down, so a
+crash, a redeploy or a laptop waking from sleep could otherwise replay old requests. Messages
+older than `STALE_MESSAGE_SECONDS` (5 minutes) are ignored to prevent that.
+
 ### Platform support
 
 Runs on macOS, Linux and Windows. Windows caveats:
@@ -136,6 +141,7 @@ Claude reads files, edits code, runs commands, and sends the results back.
 | `/project [<name>]` | Show the current project, or switch to another |
 | `/status` | Bridge health, current project, current conversation, mode |
 | `/mode [<mode>]` | Show or set the Claude permission mode for this tab |
+| `/model [<model>]` | Show or set the Claude model for this tab |
 | `/cancel` | Stop the run in flight for this tab |
 | `/sessions [n\|text]` | Pick up a conversation as buttons — VS Code ones included |
 | `/delete [n\|text]` | Delete a conversation from disk — asks to confirm first |
@@ -158,6 +164,13 @@ default scope. If the menu looks stale after a restart, reopen the chat — the 
 
 It is per tab, remembered in `state.json`, and applies from your next message. `/status` shows
 it when it is not the default.
+
+### Model
+
+`/model` sets which Claude model this tab uses — `default` (leave it to the CLI), `opus`,
+`sonnet` or `haiku` — passed through as `--model`. Same per-tab storage and timing as `/mode`;
+`/status` shows it when it is not the default. Handy for Opus on a hard problem and Haiku on
+something cheap and quick.
 
 ### Cancelling a run
 

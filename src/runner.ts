@@ -13,7 +13,7 @@ import { PROGRESS_LINE_CHARS } from './config.js';
 import { describeToolCall, plainLine } from './format.js';
 import { forgetSession, planResume, rememberSession, sessionKeyFor } from './sessionStore.js';
 import { clearActiveChild, consumeCancelled, setActiveChild } from './queue.js';
-import { modeFor } from './tabs.js';
+import { modeFor, modelFor } from './tabs.js';
 import type { ClaudeRun, Project, Tab } from './types.js';
 
 /**
@@ -149,13 +149,15 @@ Sending files:
   // Arguments are passed as an array, so the prompt is never parsed by a shell.
   // `--verbose` is what stream-json needs to emit per-step events under `-p`.
   const mode = modeFor(tab);
+  const model = modelFor(tab);
   const baseArgs = [
     '-p', userPrompt,
     '--append-system-prompt', systemPrompt,
     '--output-format', 'stream-json',
     '--verbose',
-    // A per-tab working style; omitted when it is the CLI default
+    // Per-tab working style and model; omitted when they are the CLI default
     ...(mode && mode !== 'default' ? ['--permission-mode', mode] : []),
+    ...(model && model !== 'default' ? ['--model', model] : []),
   ];
 
   const resume = planResume(tab, project, onProgress);

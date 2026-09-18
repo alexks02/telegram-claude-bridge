@@ -9,7 +9,7 @@ import { existsSync } from 'fs';
 import { Context } from 'telegraf';
 import { ownerChatId } from './config.js';
 import { availableProjects, defaultProject } from './projects.js';
-import { patchModes, patchTabs, readState } from './state.js';
+import { patchModels, patchModes, patchTabs, readState } from './state.js';
 import type { Project, Tab } from './types.js';
 
 export const tabs = new Map<string, Tab>();
@@ -116,4 +116,24 @@ export function setMode(tab: Tab, mode: string): void {
   if (mode === 'default') delete modes[tab.key];
   else modes[tab.key] = mode;
   patchModes(modes);
+}
+
+/**
+ * A tab's Claude model, and where it is stored.
+ *
+ * Per tab, like the permission mode — a working choice, not a repo property.
+ * "default" (empty) leaves the CLI to pick; the others are the CLI's own model
+ * aliases, passed through with --model.
+ */
+export const MODELS = ['default', 'sonnet', 'opus', 'haiku'] as const;
+
+export function modelFor(tab: Tab): string {
+  return readState().models[tab.key] || 'default';
+}
+
+export function setModel(tab: Tab, model: string): void {
+  const models = readState().models;
+  if (model === 'default') delete models[tab.key];
+  else models[tab.key] = model;
+  patchModels(models);
 }

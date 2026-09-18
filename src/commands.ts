@@ -23,6 +23,7 @@ import {
   SESSION_LIST_MAX,
   SESSION_LIVE_WINDOW_MS,
   SESSION_SEARCH_DEPTH,
+  STALE_MESSAGE_SECONDS,
   logFile,
   ownerChatId,
   restartMarker,
@@ -58,7 +59,16 @@ import {
   previewSession,
   readSession,
 } from './sessions.js';
-import { PERMISSION_MODES, modeFor, setMode, setTabProject, tabFor } from './tabs.js';
+import {
+  MODELS,
+  PERMISSION_MODES,
+  modeFor,
+  modelFor,
+  setMode,
+  setModel,
+  setTabProject,
+  tabFor,
+} from './tabs.js';
 import { enqueueTurn } from './turns.js';
 import type { SessionSummary } from './sessions.js';
 import type { Tab } from './types.js';
@@ -69,6 +79,7 @@ export const BOT_COMMANDS = [
   { command: 'project', description: 'Switch project: /project web | manager | nurse' },
   { command: 'status', description: 'Bridge status and current project' },
   { command: 'mode', description: 'Show or set the Claude permission mode' },
+  { command: 'model', description: 'Show or set the Claude model' },
   { command: 'sessions', description: 'Pick up a conversation, VS Code ones included' },
   { command: 'delete', description: 'Delete a conversation (asks to confirm)' },
   { command: 'cancel', description: 'Stop the run in flight for this tab' },
@@ -163,12 +174,14 @@ bot.command('status', (ctx) => {
   const busy = isBusy(tab.project.path) ? ' (a run is in flight)' : '';
   const conversation = entry ? describeCurrent(tab, entry) : 'none yet';
   const mode = modeFor(tab);
+  const model = modelFor(tab);
   ctx.reply(
     '✅ Bridge is running\n' +
       `🗂 Tab: ${tab.label}${busy}\n` +
       `📁 Project: ${tab.project.name}${tab.implicit ? ' (default — this tab was never set)' : ''}\n` +
       `💬 Conversation: ${conversation}` +
-      (mode !== 'default' ? `\n⚙️ Mode: ${mode}` : '')
+      (mode !== 'default' ? `\n⚙️ Mode: ${mode}` : '') +
+      (model !== 'default' ? `\n🧠 Model: ${model}` : '')
   );
 });
 
@@ -648,6 +661,34 @@ bot.action(/^dc:([0-9a-fA-F-]{36})$/, async (ctx) => {
 
 // Start a fresh conversation for the current project — the old session stays on
 // disk in the CLI's own history, it just stops being resumed here.
+bot.command('model', (ctx) => {
+  if (!isOwner(ctx)) return;
+  const tab = tabFor(ctx);
+  const wanted = ctx.message.text.split(/\s+/)[1]?.trim();
+
+  if (!wanted) {
+    ctx.reply(
+      `🧠 Model for ${tab.project.name} (this tab): ${modelFor(tab)}\n\n` +
+        `Set it with /model <${MODELS.join(' | ')}>.\n` +
+        '• default — whatever the CLI is configured to use\n' +
+        '• opus — most capable, for hard problems\n' +
+        '• sonnet — balanced\n' +
+        '• haiku — fastest and cheapest'
+    );
+    return;
+  }
+
+  const match = MODELS.find((m) => m.toLowerCase() === wanted.toLowerCase());
+  if (!match) {
+    ctx.reply(`❌ Unknown model "${wanted}". Pick one of: ${MODELS.join(', ')}.`);
+    return;
+  }
+
+  setModel(tab, match);
+  console.log(`🧠 ${tab.label} set model ${match}`);
+  ctx.reply(`🧠 This tab now uses ${match}. It applies from your next message.`);
+});
+
 bot.command('mode', (ctx) => {
   if (!isOwner(ctx)) return;
   const tab = tabFor(ctx);
@@ -699,8 +740,29 @@ bot.command('clear', (ctx) => {
   );
 });
 
+/**
+ * A redelivered or backlogged message the bridge should not act on.
+ *
+ * Telegram resends unacknowledged updates and queues them while the bot is down,
+ * so after a crash, redeploy or sleep a pile of old requests can arrive at once.
+ * Their `date` (seconds) is when the user actually sent them, so anything past
+ * the window is dropped rather than replayed.
+ */
+function isStale(ctx: Context): boolean {
+  if (!STALE_MESSAGE_SECONDS) return false;
+  const date = ctx.message?.date;
+  if (typeof date !== 'number') return false;
+  const ageSeconds = Date.now() / 1000 - date;
+  if (ageSeconds > STALE_MESSAGE_SECONDS) {
+    console.log(`⏭️  Ignoring a stale message (${Math.round(ageSeconds)}s old)`);
+    return true;
+  }
+  return false;
+}
+
 bot.on(message('photo'), async (ctx) => {
   if (!isOwner(ctx)) return;
+  if (isStale(ctx)) return;
 
   // Telegram sends several sizes; the last one is the largest
   const photo = ctx.message.photo[ctx.message.photo.length - 1];
@@ -716,6 +778,7 @@ bot.on(message('photo'), async (ctx) => {
 
 bot.on(message('document'), async (ctx) => {
   if (!isOwner(ctx)) return;
+  if (isStale(ctx)) return;
 
   const document = ctx.message.document;
   const isImage = document.mime_type?.startsWith('image/') ?? false;
@@ -737,6 +800,7 @@ bot.on(message('text'), async (ctx) => {
 
   // Commands are handled by their own handlers above
   if (ctx.message.text.startsWith('/')) return;
+  if (isStale(ctx)) return;
 
   const tab = tabFor(ctx);
   const queued = enqueueTurn(ctx, ctx.message.text, tab);
