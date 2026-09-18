@@ -40,7 +40,7 @@ import {
   sessionLine,
 } from './preview.js';
 import { availableProjects, projectList, resolveProject } from './projects.js';
-import { isBusy } from './queue.js';
+import { cancelRun, isBusy } from './queue.js';
 import { summarisePreview } from './runner.js';
 import {
   adoptSession,
@@ -58,7 +58,7 @@ import {
   previewSession,
   readSession,
 } from './sessions.js';
-import { setTabProject, tabFor } from './tabs.js';
+import { PERMISSION_MODES, modeFor, setMode, setTabProject, tabFor } from './tabs.js';
 import { enqueueTurn } from './turns.js';
 import type { SessionSummary } from './sessions.js';
 import type { Tab } from './types.js';
@@ -68,8 +68,10 @@ export const BOT_COMMANDS = [
   { command: 'projects', description: 'List available projects' },
   { command: 'project', description: 'Switch project: /project web | manager | nurse' },
   { command: 'status', description: 'Bridge status and current project' },
+  { command: 'mode', description: 'Show or set the Claude permission mode' },
   { command: 'sessions', description: 'Pick up a conversation, VS Code ones included' },
   { command: 'delete', description: 'Delete a conversation (asks to confirm)' },
+  { command: 'cancel', description: 'Stop the run in flight for this tab' },
   { command: 'clear', description: 'Start a fresh conversation for this project' },
   { command: 'log', description: 'Show the last lines of the bridge log' },
   { command: 'restart', description: 'Restart the bridge (detached mode only)' },
@@ -160,11 +162,13 @@ bot.command('status', (ctx) => {
   const entry = entryFor(tab, tab.project);
   const busy = isBusy(tab.project.path) ? ' (a run is in flight)' : '';
   const conversation = entry ? describeCurrent(tab, entry) : 'none yet';
+  const mode = modeFor(tab);
   ctx.reply(
     '✅ Bridge is running\n' +
       `🗂 Tab: ${tab.label}${busy}\n` +
       `📁 Project: ${tab.project.name}${tab.implicit ? ' (default — this tab was never set)' : ''}\n` +
-      `💬 Conversation: ${conversation}`
+      `💬 Conversation: ${conversation}` +
+      (mode !== 'default' ? `\n⚙️ Mode: ${mode}` : '')
   );
 });
 
@@ -644,6 +648,45 @@ bot.action(/^dc:([0-9a-fA-F-]{36})$/, async (ctx) => {
 
 // Start a fresh conversation for the current project — the old session stays on
 // disk in the CLI's own history, it just stops being resumed here.
+bot.command('mode', (ctx) => {
+  if (!isOwner(ctx)) return;
+  const tab = tabFor(ctx);
+  const wanted = ctx.message.text.split(/\s+/)[1]?.trim();
+
+  if (!wanted) {
+    ctx.reply(
+      `⚙️ Permission mode for ${tab.project.name} (this tab): ${modeFor(tab)}\n\n` +
+        `Set it with /mode <${PERMISSION_MODES.join(' | ')}>.\n` +
+        '• default — ask as usual\n' +
+        '• plan — think through a plan without making changes\n' +
+        '• acceptEdits — apply edits without asking\n' +
+        '• bypassPermissions — run everything unprompted (use with care)'
+    );
+    return;
+  }
+
+  const match = PERMISSION_MODES.find((m) => m.toLowerCase() === wanted.toLowerCase());
+  if (!match) {
+    ctx.reply(`❌ Unknown mode "${wanted}". Pick one of: ${PERMISSION_MODES.join(', ')}.`);
+    return;
+  }
+
+  setMode(tab, match);
+  console.log(`⚙️  ${tab.label} set permission mode ${match}`);
+  ctx.reply(`⚙️ This tab now runs in ${match} mode. It applies from your next message.`);
+});
+
+bot.command('cancel', (ctx) => {
+  if (!isOwner(ctx)) return;
+  const tab = tabFor(ctx);
+  if (cancelRun(tab.project.path)) {
+    console.log(`🛑 ${tab.label} requested cancel on ${tab.project.name}`);
+    ctx.reply(`🛑 Stopping the run on ${tab.project.name}…`);
+  } else {
+    ctx.reply(`Nothing is running on ${tab.project.name} right now.`);
+  }
+});
+
 bot.command('clear', (ctx) => {
   if (!isOwner(ctx)) return;
   const tab = tabFor(ctx);

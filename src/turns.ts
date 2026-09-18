@@ -5,7 +5,7 @@ import { MAX_ATTACHMENTS } from './config.js';
 import { extractAttachments } from './format.js';
 import { sendAttachment } from './files.js';
 import { createProgressFeed, sendReply } from './reply.js';
-import { callClaudeWithContext } from './runner.js';
+import { CancelledError, callClaudeWithContext } from './runner.js';
 import { scheduleIdlePark } from './sessionStore.js';
 import { runQueues } from './queue.js';
 import type { Tab } from './types.js';
@@ -52,15 +52,21 @@ export async function runTurn(ctx: Context, userMessage: string, tab: Tab): Prom
     }
   } catch (error) {
     progress.close();
-    const errorMsg =
-      error instanceof Error ? error.message : String(error);
-    console.error('❌ Error:', errorMsg);
-
     try {
-      await ctx.reply(`❌ Error: ${errorMsg}`);
+      await ctx.deleteMessage(statusMsg.message_id);
     } catch {
-      // Ignore if message can't be sent
+      // Ignore if can't delete
     }
+
+    if (error instanceof CancelledError) {
+      console.log(`🛑 ${tab.label} cancelled the run on ${project.name}`);
+      await ctx.reply('🛑 Cancelled.').catch(() => {});
+      return;
+    }
+
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error('❌ Error:', errorMsg);
+    await ctx.reply(`❌ Error: ${errorMsg}`).catch(() => {});
   }
 }
 

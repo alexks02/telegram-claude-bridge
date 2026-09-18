@@ -9,7 +9,7 @@ import { existsSync } from 'fs';
 import { Context } from 'telegraf';
 import { ownerChatId } from './config.js';
 import { availableProjects, defaultProject } from './projects.js';
-import { patchTabs, readState } from './state.js';
+import { patchModes, patchTabs, readState } from './state.js';
 import type { Project, Tab } from './types.js';
 
 export const tabs = new Map<string, Tab>();
@@ -97,3 +97,23 @@ export function tabFromKey(tabKey: string, projectPath: string): Tab {
   return tab;
 }
 
+/**
+ * A tab's Claude permission mode, and where it is stored.
+ *
+ * Per tab, not per project — a permission style is how you want to work in that
+ * workstream, not a property of the repository. An empty string means the CLI's
+ * own default. Valid values are the CLI's: default | plan | acceptEdits |
+ * bypassPermissions.
+ */
+export const PERMISSION_MODES = ['default', 'plan', 'acceptEdits', 'bypassPermissions'] as const;
+
+export function modeFor(tab: Tab): string {
+  return readState().modes[tab.key] || 'default';
+}
+
+export function setMode(tab: Tab, mode: string): void {
+  const modes = readState().modes;
+  if (mode === 'default') delete modes[tab.key];
+  else modes[tab.key] = mode;
+  patchModes(modes);
+}

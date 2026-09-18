@@ -12,6 +12,8 @@ import {
 import { PROGRESS_LINE_CHARS } from './config.js';
 import { describeToolCall, plainLine } from './format.js';
 import { forgetSession, planResume, rememberSession, sessionKeyFor } from './sessionStore.js';
+import { clearActiveChild, consumeCancelled, setActiveChild } from './queue.js';
+import { modeFor } from './tabs.js';
 import type { ClaudeRun, Project, Tab } from './types.js';
 
 /**
@@ -25,12 +27,17 @@ import type { ClaudeRun, Project, Tab } from './types.js';
  * stdin is closed immediately: left open, the CLI waits 3 seconds for piped
  * input on every single request ("no stdin data received in 3s").
  */
+/** Thrown when the user stopped a run with /cancel, so the turn reports it as such. */
+export class CancelledError extends Error {}
+
 export function runClaudeCli(
   args: string[],
   cwd: string,
   onProgress: (line: string) => void,
   // A task may legitimately take minutes; a preview's summary may not
-  timeoutMs = claudeTimeoutMs
+  timeoutMs = claudeTimeoutMs,
+  // Handed the spawned child so a real turn can be cancelled; the summariser omits it
+  onChild?: (child: import('child_process').ChildProcess) => void
 ): Promise<ClaudeRun> {
   return new Promise((resolvePromise, reject) => {
     // A .cmd/.bat target (e.g. an npm-installed claude on Windows) can only be
@@ -42,6 +49,7 @@ export function runClaudeCli(
       stdio: ['pipe', 'pipe', 'pipe'],
       shell: needsShell,
     });
+    onChild?.(child);
 
     let stderr = '';
     let buffer = '';
@@ -140,11 +148,14 @@ Sending files:
 
   // Arguments are passed as an array, so the prompt is never parsed by a shell.
   // `--verbose` is what stream-json needs to emit per-step events under `-p`.
+  const mode = modeFor(tab);
   const baseArgs = [
     '-p', userPrompt,
     '--append-system-prompt', systemPrompt,
     '--output-format', 'stream-json',
     '--verbose',
+    // A per-tab working style; omitted when it is the CLI default
+    ...(mode && mode !== 'default' ? ['--permission-mode', mode] : []),
   ];
 
   const resume = planResume(tab, project, onProgress);
@@ -157,19 +168,32 @@ Sending files:
     ? ['--fork-session', ...(resume.name ? ['--name', resume.name] : [])]
     : [];
 
-  let run = await runClaudeCli(
-    resume ? ['--resume', resume.id, ...forkArgs, ...baseArgs] : baseArgs,
-    project.path,
-    onProgress
-  );
+  // Register the child so /cancel can kill it; clear it however this ends.
+  const track = (child: import('child_process').ChildProcess) =>
+    setActiveChild(project.path, child);
 
-  // A stored id can outlive the conversation it points at (cleared CLI state,
-  // another machine). Losing history is better than refusing to answer.
-  if (resume && isMissingSession(run)) {
-    console.warn(`⚠️  Session ${resume.id} is gone — starting a new one for ${project.name}`);
-    forgetSession(sessionKeyFor(tab, project));
-    onProgress('↩️ Previous conversation was gone, starting a new one');
-    run = await runClaudeCli(baseArgs, project.path, onProgress);
+  let run: ClaudeRun;
+  try {
+    run = await runClaudeCli(
+      resume ? ['--resume', resume.id, ...forkArgs, ...baseArgs] : baseArgs,
+      project.path,
+      onProgress,
+      undefined,
+      track
+    );
+    if (consumeCancelled(project.path)) throw new CancelledError();
+
+    // A stored id can outlive the conversation it points at (cleared CLI state,
+    // another machine). Losing history is better than refusing to answer.
+    if (resume && isMissingSession(run)) {
+      console.warn(`⚠️  Session ${resume.id} is gone — starting a new one for ${project.name}`);
+      forgetSession(sessionKeyFor(tab, project));
+      onProgress('↩️ Previous conversation was gone, starting a new one');
+      run = await runClaudeCli(baseArgs, project.path, onProgress, undefined, track);
+      if (consumeCancelled(project.path)) throw new CancelledError();
+    }
+  } finally {
+    clearActiveChild(project.path);
   }
 
   const { result, sessionId, isError, stderr, code } = run;

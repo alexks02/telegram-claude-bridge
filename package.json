@@ -8,6 +8,8 @@
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts",
     "bg": "node bridge.mjs start",
     "bg:stop": "node bridge.mjs stop",
     "bg:restart": "node bridge.mjs restart",

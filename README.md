@@ -134,7 +134,9 @@ Claude reads files, edits code, runs commands, and sends the results back.
 | --- | --- |
 | `/projects` | List discovered projects, marking the current one |
 | `/project [<name>]` | Show the current project, or switch to another |
-| `/status` | Bridge health, current project, current conversation |
+| `/status` | Bridge health, current project, current conversation, mode |
+| `/mode [<mode>]` | Show or set the Claude permission mode for this tab |
+| `/cancel` | Stop the run in flight for this tab |
 | `/sessions [n\|text]` | Pick up a conversation as buttons — VS Code ones included |
 | `/delete [n\|text]` | Delete a conversation from disk — asks to confirm first |
 | `/clear` | Start a fresh conversation for the current project |
@@ -144,6 +146,24 @@ Claude reads files, edits code, runs commands, and sends the results back.
 The list is registered with Telegram on startup, so typing `/` autocompletes. It is written
 to the chat scope (which wins over a shared bot's `all_private_chats` menu) as well as the
 default scope. If the menu looks stale after a restart, reopen the chat — the client caches it.
+
+### Permission mode
+
+`/mode` sets how Claude treats permissions in the current tab, passed straight to the CLI:
+
+- `default` — asks as usual
+- `plan` — works out a plan without making changes
+- `acceptEdits` — applies edits without asking
+- `bypassPermissions` — runs everything unprompted (use with care)
+
+It is per tab, remembered in `state.json`, and applies from your next message. `/status` shows
+it when it is not the default.
+
+### Cancelling a run
+
+`/cancel` stops the Claude run in flight for the current tab — the child process is killed and
+the reply comes back as `🛑 Cancelled` instead of an answer. Anything queued behind it then
+proceeds; send `/cancel` again to stop the next one.
 
 ### Live progress
 
@@ -264,6 +284,15 @@ run says so, because from then on both windows share one transcript.
 
 Going the other way, sessions the bridge starts show up in VS Code's own `/resume` picker —
 they live in the same directory.
+
+## Development
+
+```bash
+npm run typecheck   # tsc --noEmit
+npm test            # node --test over test/*.test.ts (no framework, uses tsx)
+```
+
+Both run in CI (`.github/workflows/ci.yml`) on push and pull request.
 
 ## Security
 
