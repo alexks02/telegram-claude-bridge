@@ -1,0 +1,18 @@
+# Dependencies and build output
+node_modules/
+dist/
+
+# Secrets and config
+.env
+.env.local
+
+# Runtime state — per-install, never shared
+state.json
+bridge.pid
+bridge.out
+.restart-requested
+inbox/
+
+# Logs and OS cruft
+*.log
+.DS_Store
