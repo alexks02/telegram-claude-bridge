@@ -11,3 +11,8 @@ test('historyDirFor replaces every non-word char with a dash', () => {
   const dir = historyDirFor('/a.b/c-d');
   assert.ok(dir.endsWith('-a-b-c-d'), dir);
 });
+
+test('historyDirFor replaces underscores too', () => {
+  const dir = historyDirFor('/Users/olek/ESHYFT/eshyft_automation');
+  assert.ok(dir.endsWith('-Users-olek-ESHYFT-eshyft-automation'), dir);
+});

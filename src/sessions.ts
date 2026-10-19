@@ -49,12 +49,12 @@ export interface SessionSummary {
 }
 
 /**
- * The CLI's directory name for a project: every character that is not a letter,
- * a digit or an underscore becomes a dash, so `/Users/you/code/my-app`
- * becomes `-Users-you-code-my-app`.
+ * The CLI's directory name for a project: every character that is not a letter
+ * or a digit (underscores included) becomes a dash, so `/Users/you/my_app`
+ * becomes `-Users-you-my-app`.
  */
 export function historyDirFor(projectPath: string): string {
-  return join(projectsDir, projectPath.replace(/[^a-zA-Z0-9_]/g, '-'));
+  return join(projectsDir, projectPath.replace(/[^a-zA-Z0-9]/g, '-'));
 }
 
 /** Sessions for one project, newest first. */
