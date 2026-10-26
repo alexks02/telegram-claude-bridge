@@ -31,6 +31,7 @@ import {
   workspaceRoot,
 } from './config.js';
 import { handleIncomingFile } from './files.js';
+import { rateLimitFooter } from './limits.js';
 import {
   describeCurrent,
   deleteKeyboard,
@@ -166,7 +167,7 @@ bot.command('project', (ctx) => {
 });
 
 // Health check
-bot.command('status', (ctx) => {
+bot.command('status', async (ctx) => {
   if (!isOwner(ctx)) return;
   const tab = tabFor(ctx);
   // entryFor, not resumeFor: a session let go of must show as let go of,
@@ -177,6 +178,7 @@ bot.command('status', (ctx) => {
   const mode = modeFor(tab);
   const model = modelFor(tab);
   const usage = usageFor(tab.key);
+  const limits = await rateLimitFooter(tab.project.path);
   ctx.reply(
     '✅ Bridge is running\n' +
       `🗂 Tab: ${tab.label}${busy}\n` +
@@ -184,7 +186,8 @@ bot.command('status', (ctx) => {
       `💬 Conversation: ${conversation}` +
       (mode !== 'default' ? `\n⚙️ Mode: ${mode}` : '') +
       (model !== 'default' ? `\n🧠 Model: ${model}` : '') +
-      (usage ? `\n${formatUsage(usage)}` : '')
+      (usage ? `\n${formatUsage(usage)}` : '') +
+      (limits ? `\n${limits}` : '')
   );
 });
 

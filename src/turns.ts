@@ -5,10 +5,10 @@ import { MAX_ATTACHMENTS } from './config.js';
 import { extractAttachments } from './format.js';
 import { sendAttachment } from './files.js';
 import { createProgressFeed, sendReply } from './reply.js';
+import { rateLimitFooter } from './limits.js';
 import { CancelledError, callClaudeWithContext } from './runner.js';
 import { scheduleIdlePark } from './sessionStore.js';
 import { runQueues } from './queue.js';
-import { formatUsageFooter, usageFor } from './usageStore.js';
 import type { Tab } from './types.js';
 
 /** Run one request against a project: Claude call, then the reply in chunks. */
@@ -34,8 +34,8 @@ export async function runTurn(ctx: Context, userMessage: string, tab: Tab): Prom
     }
 
     const { text: reply, attachments } = extractAttachments(response);
-    const usage = usageFor(tab.key);
-    const footer = usage ? `\n\n${formatUsageFooter(usage)}` : '';
+    const limits = await rateLimitFooter(project.path);
+    const footer = limits ? `\n\n${limits}` : '';
     await sendReply(ctx, (reply || '(no text)') + footer);
 
     // Files come after the text, and a failed upload never fails the turn —
