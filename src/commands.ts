@@ -70,6 +70,7 @@ import {
   tabFor,
 } from './tabs.js';
 import { enqueueTurn } from './turns.js';
+import { formatUsage, usageFor } from './usageStore.js';
 import type { SessionSummary } from './sessions.js';
 import type { Tab } from './types.js';
 
@@ -175,13 +176,15 @@ bot.command('status', (ctx) => {
   const conversation = entry ? describeCurrent(tab, entry) : 'none yet';
   const mode = modeFor(tab);
   const model = modelFor(tab);
+  const usage = usageFor(tab.key);
   ctx.reply(
     '✅ Bridge is running\n' +
       `🗂 Tab: ${tab.label}${busy}\n` +
       `📁 Project: ${tab.project.name}${tab.implicit ? ' (default — this tab was never set)' : ''}\n` +
       `💬 Conversation: ${conversation}` +
       (mode !== 'default' ? `\n⚙️ Mode: ${mode}` : '') +
-      (model !== 'default' ? `\n🧠 Model: ${model}` : '')
+      (model !== 'default' ? `\n🧠 Model: ${model}` : '') +
+      (usage ? `\n${formatUsage(usage)}` : '')
   );
 });
 

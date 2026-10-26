@@ -75,4 +75,15 @@ export interface ClaudeRun {
   isError: boolean;
   stderr: string;
   code: number | null;
+  usage?: RunUsage;
+}
+
+/** What a single turn cost — pulled from the CLI's final `result` event. */
+export interface RunUsage {
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  durationMs: number;
 }

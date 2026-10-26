@@ -14,7 +14,8 @@ import { describeToolCall, plainLine } from './format.js';
 import { forgetSession, planResume, rememberSession, sessionKeyFor } from './sessionStore.js';
 import { clearActiveChild, consumeCancelled, setActiveChild } from './queue.js';
 import { modeFor, modelFor } from './tabs.js';
-import type { ClaudeRun, Project, Tab } from './types.js';
+import { recordUsage } from './usageStore.js';
+import type { ClaudeRun, Project, RunUsage, Tab } from './types.js';
 
 /**
  * Run the Claude CLI and report what it does while it does it.
@@ -57,6 +58,7 @@ export function runClaudeCli(
     let sessionId: string | undefined;
     let isError = false;
     let timedOut = false;
+    let usage: RunUsage | undefined;
 
     const timer = setTimeout(() => {
       timedOut = true;
@@ -85,6 +87,16 @@ export function runClaudeCli(
           result = typeof row.result === 'string' ? row.result : '';
           sessionId = row.session_id ?? sessionId;
           isError = Boolean(row.is_error);
+          if (typeof row.total_cost_usd === 'number' && row.usage) {
+            usage = {
+              costUsd: row.total_cost_usd,
+              inputTokens: row.usage.input_tokens ?? 0,
+              outputTokens: row.usage.output_tokens ?? 0,
+              cacheReadTokens: row.usage.cache_read_input_tokens ?? 0,
+              cacheCreationTokens: row.usage.cache_creation_input_tokens ?? 0,
+              durationMs: row.duration_ms ?? 0,
+            };
+          }
           break;
       }
     };
@@ -116,7 +128,7 @@ export function runClaudeCli(
         reject(new Error(`Claude CLI timed out after ${timeoutMs / 1000}s`));
         return;
       }
-      resolvePromise({ result, sessionId, isError, stderr, code });
+      resolvePromise({ result, sessionId, isError, stderr, code, usage });
     });
 
     child.stdin.end();
@@ -198,9 +210,10 @@ Sending files:
     clearActiveChild(project.path);
   }
 
-  const { result, sessionId, isError, stderr, code } = run;
+  const { result, sessionId, isError, stderr, code, usage } = run;
 
   if (sessionId) rememberSession(sessionKeyFor(tab, project), sessionId);
+  if (usage) recordUsage(tab.key, usage);
 
   // The CLI writes warnings to stderr on successful runs too, so stderr alone
   // never means failure — log it and judge by whether there is an answer.
