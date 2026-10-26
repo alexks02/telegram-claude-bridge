@@ -100,10 +100,18 @@ function describe(
 ): string | undefined {
   if (pct === undefined || resetMs === undefined) return undefined;
 
+  // The baseline is account-wide, not this tab's — with several tabs running
+  // at once the gap since it was last read can hold another one's usage too,
+  // so this is never claimed as "this turn" alone.
+  //
   // A negative delta means the window rolled over between the two readings,
   // not that usage went backwards — say so instead of printing "-40%".
   const delta =
-    prevPct === undefined ? '' : prevPct > pct ? ' (window reset)' : ` (+${pct - prevPct} this turn)`;
+    prevPct === undefined
+      ? ''
+      : prevPct > pct
+        ? ' (window reset)'
+        : ` (+${pct - prevPct} since last check)`;
 
   return `${label}: ${pct}% used${delta} · resets ${formatRelative(resetMs, now)}`;
 }
