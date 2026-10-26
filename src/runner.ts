@@ -281,9 +281,13 @@ export async function summarisePreview(
 
   const prompt =
     `Below is the tail of a recorded Claude Code conversation in the "${project.name}" ` +
-    'project, between a person and an assistant. In 2-4 short sentences, say what the ' +
-    'person was after, what was actually done, and where it stopped. Write in the language ' +
-    'the conversation is in. No preamble, no headings, no bullet points.\n\n' +
+    'project, between a person and an assistant. In 3-6 short sentences, say what the ' +
+    'person was after, what was actually done, and where it stopped — naming the concrete ' +
+    'specifics: file paths, function/variable names, commands run, decisions made and why. ' +
+    'Prefer "modified the cc handler in src/commands.ts to clear pending.summary before ' +
+    'replying" over "updated a handler". A reader with no other context must be able to ' +
+    'resume the work from this alone. Write in the language the conversation is in. ' +
+    'No preamble, no headings, no bullet points.\n\n' +
     // From the person asking for this summary just now — not part of the
     // transcript below, and to be followed rather than merely described.
     (guidance ? `The person reviewing this summary asked: ${guidance}\n\n` : '') +
