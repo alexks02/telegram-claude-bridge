@@ -11,9 +11,9 @@ import { scheduleIdlePark, sessionKeyFor, takePendingSeed } from './sessionStore
 import { runQueues } from './queue.js';
 import type { Tab } from './types.js';
 
-/** The "🧹 New session" button under every answer — see commands.ts's `clr` action. */
+/** The "🧹 Compact session" button under every answer — see commands.ts's `clr` action. */
 const clearSessionKeyboard = {
-  inline_keyboard: [[{ text: '🧹 New session', callback_data: 'clr' }]],
+  inline_keyboard: [[{ text: '🧹 Compact session', callback_data: 'clr' }]],
 };
 
 /** Run one request against a project: Claude call, then the reply in chunks. */
@@ -25,7 +25,7 @@ export async function runTurn(ctx: Context, userMessage: string, tab: Tab): Prom
   try {
     console.log(`\n📨 User (${tab.label} · ${project.name}): ${userMessage}`);
 
-    // Set by "🧹 New session": carries a short recap of the parted conversation
+    // Set by "🧹 Compact session": carries a short recap of the parted conversation
     // into the fresh one it started, so the next message isn't the first thing
     // the new session has ever heard about the task.
     const seed = takePendingSeed(sessionKeyFor(tab, project));

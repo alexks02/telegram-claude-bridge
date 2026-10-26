@@ -46,12 +46,18 @@ import { cancelRun, isBusy } from './queue.js';
 import { summarisePreview } from './runner.js';
 import {
   adoptSession,
+  awaitingClarification,
   entryFor,
+  forgetGenesisOpeners,
   forgetSession,
+  genesisOpeners,
+  pendingClears,
+  rememberGenesisOpeners,
   resumeFor,
   sessionKeyFor,
   setPendingSeed,
 } from './sessionStore.js';
+import type { PendingClear } from './sessionStore.js';
 import {
   deleteSession,
   firstUserMessages,
@@ -565,22 +571,69 @@ bot.action(/^p:([0-9a-fA-F-]{36})$/, async (ctx) => {
 bot.action('rn', async (ctx) => {
   if (!isOwner(ctx)) return;
   const tab = tabFor(ctx);
-  forgetSession(sessionKeyFor(tab, tab.project));
+  const key = sessionKeyFor(tab, tab.project);
+  forgetSession(key);
+  forgetGenesisOpeners(key);
   await ctx.answerCbQuery('✅ New conversation');
   await ctx.reply(
     `🗑️ This tab is on a new conversation for ${tab.project.name} — just write to start it.`
   );
 });
 
+/** The confirm/edit keyboard under a recap waiting to be carried over. */
+const clearPreviewKeyboard = {
+  inline_keyboard: [[
+    { text: '✅ Confirm', callback_data: 'cc' },
+    { text: '✏️ Edit summary', callback_data: 'ce' },
+  ]],
+};
+
+/** Write (or rewrite) the recap, store it as pending, and show it for review. */
+async function showClearPreview(
+  ctx: Context,
+  tab: Tab,
+  messageId: number,
+  key: string,
+  excerpt: string,
+  entryId: string,
+  notes: string[]
+): Promise<void> {
+  let summary: string | undefined;
+  try {
+    if (excerpt) {
+      summary = await summarisePreview(excerpt, tab.project, notes.join('; ') || undefined);
+    }
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.warn(`⚠️  Could not summarise ${entryId.slice(0, 8)}… before clearing:`, errorMsg);
+  }
+
+  const pending: PendingClear = { key, excerpt, summary, notes, messageId };
+  pendingClears.set(tab.key, pending);
+
+  await ctx.telegram
+    .editMessageText(
+      ctx.chat!.id,
+      messageId,
+      undefined,
+      summary
+        ? `📝 ${summary}\n\nCarry this into the fresh session?`
+        : '(no recap could be written — Confirm starts fresh with nothing carried over)',
+      { reply_markup: clearPreviewKeyboard }
+    )
+    .catch((error) => console.warn('⚠️  Could not show the recap:', error.message));
+}
+
 /**
- * The "🧹 New session" button under every answer.
+ * The "🧹 Compact session" button under every answer.
  *
  * Unlike `rn` (a clean slate, nothing carried over), this one is for a
  * conversation that is still going but has gotten expensive to resume — every
  * `--resume` replays the whole transcript, so a long one costs 5-hour-limit
  * percentage just to be read back before the new message is even answered.
  * Parting with it and seeding the replacement with a short recap keeps the
- * task going without paying to re-read everything said so far.
+ * task going without paying to re-read everything said so far — but the recap
+ * is shown for review first, since a wrong one is worse than paying to resume.
  */
 bot.action('clr', async (ctx) => {
   if (!isOwner(ctx)) {
@@ -601,8 +654,13 @@ bot.action('clr', async (ctx) => {
   // What a recap needs is not "the last N lines" — it's how the task was
   // framed (the opening asks) and where it actually got to (the last few
   // exchanges), which a plain tail cuts the first half out of on anything but
-  // a short conversation.
-  const openers = firstUserMessages(tab.project.path, entry.id, 2);
+  // a short conversation. Past the first clear, this session's own opening
+  // lines are last time's seed message, not the real start — so the true
+  // opener is read once and kept under the key from then on.
+  const key = sessionKeyFor(tab, tab.project);
+  const openers =
+    genesisOpeners.get(key) ?? firstUserMessages(tab.project.path, entry.id, 2);
+  rememberGenesisOpeners(key, openers);
   const openingEntries: PreviewEntry[] = openers.map((text) => ({ kind: 'user', text }));
 
   const scanned = (previewSession(tab.project.path, entry.id, PREVIEW_SCAN_ENTRIES) ?? []).filter(
@@ -616,33 +674,70 @@ bot.action('clr', async (ctx) => {
   );
 
   const entries = [...openingEntries, ...tailEntries];
+  await showClearPreview(ctx, tab, sent.message_id, key, entries.length ? renderExcerpt(entries) : '', entry.id, []);
+});
 
-  let summary: string | undefined;
-  try {
-    if (entries.length) summary = await summarisePreview(renderExcerpt(entries), tab.project);
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    console.warn(`⚠️  Could not summarise ${entry.id.slice(0, 8)}… before clearing:`, errorMsg);
+/** "✅ Confirm" on a recap: actually part with the session, carrying the recap over. */
+bot.action('cc', async (ctx) => {
+  if (!isOwner(ctx)) {
+    await ctx.answerCbQuery('Not your bot');
+    return;
   }
 
-  const key = sessionKeyFor(tab, tab.project);
-  forgetSession(key);
-  if (summary) {
+  const tab = tabFor(ctx);
+  const pending = pendingClears.get(tab.key);
+  if (!pending) {
+    await ctx.answerCbQuery('Nothing pending');
+    return;
+  }
+
+  pendingClears.delete(tab.key);
+  awaitingClarification.delete(tab.key);
+  await ctx.answerCbQuery('🧹 Compacting…');
+
+  forgetSession(pending.key);
+  if (pending.summary) {
     setPendingSeed(
-      key,
-      `Continuing from a previous session that was cleared to save on usage. Recap of what was happening:\n${summary}`
+      pending.key,
+      `Continuing from a previous session that was cleared to save on usage. Recap of what was happening:\n${pending.summary}`
     );
   }
 
   await ctx.telegram
     .editMessageText(
       ctx.chat!.id,
-      sent.message_id,
+      pending.messageId,
       undefined,
-      `🧹 New session for ${tab.project.name}.` +
-        (summary ? `\n📝 Carried over: ${summary}` : '\n(no recap — just write to continue)')
+      `🧹 Compacted session for ${tab.project.name}.` +
+        (pending.summary ? `\n📝 Carried over: ${pending.summary}` : '\n(no recap — just write to continue)')
     )
     .catch((error) => console.warn('⚠️  Could not update the clear-session message:', error.message));
+});
+
+/** "✏️ Edit summary" on a recap: the next text from this tab rewrites it instead of running as a turn. */
+bot.action('ce', async (ctx) => {
+  if (!isOwner(ctx)) {
+    await ctx.answerCbQuery('Not your bot');
+    return;
+  }
+
+  const tab = tabFor(ctx);
+  const pending = pendingClears.get(tab.key);
+  if (!pending) {
+    await ctx.answerCbQuery('Nothing pending');
+    return;
+  }
+
+  awaitingClarification.add(tab.key);
+  await ctx.answerCbQuery();
+  await ctx.telegram
+    .editMessageText(
+      ctx.chat!.id,
+      pending.messageId,
+      undefined,
+      `✏️ What should the summary cover instead? Reply with a note.`
+    )
+    .catch((error) => console.warn('⚠️  Could not ask for a clarification:', error.message));
 });
 
 bot.action('rx', async (ctx) => {
@@ -727,7 +822,11 @@ bot.action(/^dc:([0-9a-fA-F-]{36})$/, async (ctx) => {
 
   // A tab still resuming a deleted transcript would fail on its next message, so
   // it is let go of here — the same clean-slate state a fresh conversation has.
-  if (wasCurrent) forgetSession(sessionKeyFor(tab, tab.project));
+  if (wasCurrent) {
+    const key = sessionKeyFor(tab, tab.project);
+    forgetSession(key);
+    forgetGenesisOpeners(key);
+  }
   console.log(`🗑️  ${tab.label} deleted ${id}`);
 
   await ctx.answerCbQuery('🗑️ Deleted');
@@ -814,7 +913,9 @@ bot.command('clear', (ctx) => {
   if (!isOwner(ctx)) return;
   const tab = tabFor(ctx);
   const had = resumeFor(tab, tab.project) !== undefined;
-  forgetSession(sessionKeyFor(tab, tab.project));
+  const key = sessionKeyFor(tab, tab.project);
+  forgetSession(key);
+  forgetGenesisOpeners(key);
   ctx.reply(
     had
       ? `🗑️ Started a new conversation for ${tab.project.name} in this tab`
@@ -885,6 +986,24 @@ bot.on(message('text'), async (ctx) => {
   if (isStale(ctx)) return;
 
   const tab = tabFor(ctx);
+
+  // "✏️ Edit summary" is waiting on a note, not on the next turn.
+  if (awaitingClarification.delete(tab.key)) {
+    const pending = pendingClears.get(tab.key);
+    if (pending) {
+      await showClearPreview(
+        ctx,
+        tab,
+        pending.messageId,
+        pending.key,
+        pending.excerpt,
+        pending.key,
+        [...pending.notes, ctx.message.text]
+      );
+    }
+    return;
+  }
+
   const queued = enqueueTurn(ctx, ctx.message.text, tab);
 
   if (queued) {

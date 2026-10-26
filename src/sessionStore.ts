@@ -8,7 +8,7 @@
 import { HANDOFF_IDLE_MS, ownerChatId } from './config.js';
 import { isBusy } from './queue.js';
 import { readSession } from './sessions.js';
-import { patchSessions, readState, stateFile, stateStamp } from './state.js';
+import { patchGenesis, patchSessions, readState, stateFile, stateStamp } from './state.js';
 import { tabFromKey } from './tabs.js';
 import type { Project, SessionEntry, Tab } from './types.js';
 
@@ -236,8 +236,42 @@ export function forgetSession(key: string): void {
 }
 
 /**
+ * The real opening of a conversation, kept aside across repeated clears.
+ *
+ * `/clr` reads a session's first user messages to recap what it was about —
+ * right for a session that has never been cleared before, wrong for one that
+ * is itself the seed of an earlier clear: its "first messages" are last
+ * time's recap, not the actual start. Stashing the true opener here the first
+ * time a key is cleared means the fifth clear in a row still recaps against
+ * where the conversation began, not against the fourth clear's summary of a
+ * summary.
+ */
+export const genesisOpeners = new Map<string, string[]>(Object.entries(readState().genesis));
+
+function persistGenesisOpeners(): void {
+  try {
+    patchGenesis(Object.fromEntries(genesisOpeners));
+  } catch (error) {
+    console.warn('⚠️  Could not persist genesis openers:', error);
+  }
+}
+
+/** Only ever set once per key — later calls leave the stored opener alone. */
+export function rememberGenesisOpeners(key: string, messages: string[]): void {
+  if (!messages.length || genesisOpeners.has(key)) return;
+  genesisOpeners.set(key, messages);
+  persistGenesisOpeners();
+}
+
+/** A deliberate clean slate (`/clear`, "➕ New conversation", a delete) drops it too. */
+export function forgetGenesisOpeners(key: string): void {
+  if (!genesisOpeners.delete(key)) return;
+  persistGenesisOpeners();
+}
+
+/**
  * A short context dump a tab carries into the fresh session `forgetSession`
- * just started — set on "🧹 New session", consumed by the next message.
+ * just started — set on "🧹 Compact session", consumed by the next message.
  *
  * In memory only: it bridges one button press to the very next prompt, not
  * worth surviving a restart for.
@@ -253,6 +287,27 @@ export function takePendingSeed(key: string): string | undefined {
   pendingSeeds.delete(key);
   return seed;
 }
+
+/**
+ * A "🧹 Compact session" recap waiting on "✅ Confirm" / "✏️ Edit summary",
+ * keyed by tab rather than by session — nothing has actually been cleared yet.
+ *
+ * `excerpt` is kept so "Edit summary" can ask for a new recap of the same
+ * transcript instead of re-reading it; `notes` accumulates what the person
+ * asked to change, across as many rounds of editing as they want.
+ */
+export type PendingClear = {
+  key: string;
+  excerpt: string;
+  summary: string | undefined;
+  notes: string[];
+  messageId: number;
+};
+
+export const pendingClears = new Map<string, PendingClear>();
+
+/** Set by "✏️ Edit summary": the next text from this tab is a note, not a turn. */
+export const awaitingClarification = new Set<string>();
 
 /**
  * A restart wipes the idle timers, so quiet sessions are caught up on at start:

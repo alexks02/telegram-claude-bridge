@@ -27,6 +27,17 @@ export interface BridgeState {
   modes: Record<string, string>;
   /** Per-tab Claude model; absent means the CLI default. */
   models: Record<string, string>;
+  /**
+   * The first couple of user messages of a conversation, kept aside under the
+   * same tab key through every "🧹 Compact session" in a row.
+   *
+   * A clear reads its opening lines off the current session file — fine once,
+   * but after the second clear in a row that file's first lines are last
+   * time's seed message, not what the conversation actually opened with. This
+   * is what lets a clear five generations deep still recap against the real
+   * start instead of a recap of a recap.
+   */
+  genesis: Record<string, string[]>;
 }
 
 const legacySessions = resolve(scriptDir, '..', 'sessions.json');
@@ -37,7 +48,7 @@ function migrate(): void {
   if (existsSync(stateFile)) return;
   if (!existsSync(legacySessions) && !existsSync(legacyTabs)) return;
 
-  const state: BridgeState = { tabs: {}, sessions: {}, modes: {}, models: {} };
+  const state: BridgeState = { tabs: {}, sessions: {}, modes: {}, models: {}, genesis: {} };
   try {
     state.sessions = JSON.parse(readFileSync(legacySessions, 'utf8'));
   } catch {
@@ -73,9 +84,10 @@ export function readState(): BridgeState {
       sessions: raw.sessions ?? {},
       modes: raw.modes ?? {},
       models: raw.models ?? {},
+      genesis: raw.genesis ?? {},
     };
   } catch {
-    return { tabs: {}, sessions: {}, modes: {}, models: {} }; // No file yet, or corrupted
+    return { tabs: {}, sessions: {}, modes: {}, models: {}, genesis: {} }; // No file yet, or corrupted
   }
 }
 
@@ -108,6 +120,13 @@ export function patchModes(modes: Record<string, string>): void {
 export function patchModels(models: Record<string, string>): void {
   const state = readState();
   state.models = models;
+  writeState(state);
+}
+
+/** Replace the genesis section, leaving the rest untouched. */
+export function patchGenesis(genesis: Record<string, string[]>): void {
+  const state = readState();
+  state.genesis = genesis;
   writeState(state);
 }
 
