@@ -27,3 +27,9 @@ export function formatUsage(usage: RunUsage): string {
     `   in ${totalInput} (${usage.cacheReadTokens} cached) / out ${usage.outputTokens} tokens`
   );
 }
+
+/** One line, meant to ride along at the end of every reply rather than its own message. */
+export function formatUsageFooter(usage: RunUsage): string {
+  const totalInput = usage.inputTokens + usage.cacheReadTokens + usage.cacheCreationTokens;
+  return `💰 $${usage.costUsd.toFixed(4)} · in ${totalInput} (${usage.cacheReadTokens} cached) / out ${usage.outputTokens}`;
+}

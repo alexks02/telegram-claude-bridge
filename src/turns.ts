@@ -8,6 +8,7 @@ import { createProgressFeed, sendReply } from './reply.js';
 import { CancelledError, callClaudeWithContext } from './runner.js';
 import { scheduleIdlePark } from './sessionStore.js';
 import { runQueues } from './queue.js';
+import { formatUsageFooter, usageFor } from './usageStore.js';
 import type { Tab } from './types.js';
 
 /** Run one request against a project: Claude call, then the reply in chunks. */
@@ -33,7 +34,9 @@ export async function runTurn(ctx: Context, userMessage: string, tab: Tab): Prom
     }
 
     const { text: reply, attachments } = extractAttachments(response);
-    await sendReply(ctx, reply || '(no text)');
+    const usage = usageFor(tab.key);
+    const footer = usage ? `\n\n${formatUsageFooter(usage)}` : '';
+    await sendReply(ctx, (reply || '(no text)') + footer);
 
     // Files come after the text, and a failed upload never fails the turn —
     // the answer is already delivered by this point.
