@@ -50,9 +50,11 @@ import {
   forgetSession,
   resumeFor,
   sessionKeyFor,
+  setPendingSeed,
 } from './sessionStore.js';
 import {
   deleteSession,
+  firstUserMessages,
   formatAge,
   formatSize,
   historyDirFor,
@@ -60,6 +62,7 @@ import {
   previewSession,
   readSession,
 } from './sessions.js';
+import type { PreviewEntry } from './sessions.js';
 import {
   MODELS,
   PERMISSION_MODES,
@@ -567,6 +570,79 @@ bot.action('rn', async (ctx) => {
   await ctx.reply(
     `🗑️ This tab is on a new conversation for ${tab.project.name} — just write to start it.`
   );
+});
+
+/**
+ * The "🧹 New session" button under every answer.
+ *
+ * Unlike `rn` (a clean slate, nothing carried over), this one is for a
+ * conversation that is still going but has gotten expensive to resume — every
+ * `--resume` replays the whole transcript, so a long one costs 5-hour-limit
+ * percentage just to be read back before the new message is even answered.
+ * Parting with it and seeding the replacement with a short recap keeps the
+ * task going without paying to re-read everything said so far.
+ */
+bot.action('clr', async (ctx) => {
+  if (!isOwner(ctx)) {
+    await ctx.answerCbQuery('Not your bot');
+    return;
+  }
+
+  const tab = tabFor(ctx);
+  const entry = entryFor(tab, tab.project);
+  if (!entry) {
+    await ctx.answerCbQuery('Nothing to clear yet');
+    return;
+  }
+
+  await ctx.answerCbQuery('🧹 Summarising…');
+  const sent = await ctx.reply('🧹 Summarising the conversation so far…');
+
+  // What a recap needs is not "the last N lines" — it's how the task was
+  // framed (the opening asks) and where it actually got to (the last few
+  // exchanges), which a plain tail cuts the first half out of on anything but
+  // a short conversation.
+  const openers = firstUserMessages(tab.project.path, entry.id, 2);
+  const openingEntries: PreviewEntry[] = openers.map((text) => ({ kind: 'user', text }));
+
+  const scanned = (previewSession(tab.project.path, entry.id, PREVIEW_SCAN_ENTRIES) ?? []).filter(
+    (e) => e.kind !== 'tool'
+  );
+  const lastUser = scanned.filter((e) => e.kind === 'user').slice(-3);
+  const lastAssistant = scanned.filter((e) => e.kind === 'assistant').slice(-3);
+  const tailSet = new Set([...lastUser, ...lastAssistant]);
+  const tailEntries = scanned.filter(
+    (e) => tailSet.has(e) && !(e.kind === 'user' && openers.includes(e.text ?? ''))
+  );
+
+  const entries = [...openingEntries, ...tailEntries];
+
+  let summary: string | undefined;
+  try {
+    if (entries.length) summary = await summarisePreview(renderExcerpt(entries), tab.project);
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.warn(`⚠️  Could not summarise ${entry.id.slice(0, 8)}… before clearing:`, errorMsg);
+  }
+
+  const key = sessionKeyFor(tab, tab.project);
+  forgetSession(key);
+  if (summary) {
+    setPendingSeed(
+      key,
+      `Continuing from a previous session that was cleared to save on usage. Recap of what was happening:\n${summary}`
+    );
+  }
+
+  await ctx.telegram
+    .editMessageText(
+      ctx.chat!.id,
+      sent.message_id,
+      undefined,
+      `🧹 New session for ${tab.project.name}.` +
+        (summary ? `\n📝 Carried over: ${summary}` : '\n(no recap — just write to continue)')
+    )
+    .catch((error) => console.warn('⚠️  Could not update the clear-session message:', error.message));
 });
 
 bot.action('rx', async (ctx) => {

@@ -1,6 +1,7 @@
 /** Getting text back into Telegram: chunking, fallbacks, and the live feed. */
 
 import { Context } from 'telegraf';
+import type { InlineKeyboardMarkup } from 'telegraf/types';
 import { MAX_MESSAGE_CHARS, PROGRESS_INTERVAL_MS, PROGRESS_MAX_LINES } from './config.js';
 import { toTelegramHtml } from './format.js';
 import type { Project } from './types.js';
@@ -64,18 +65,26 @@ export function lastFenceLine(text: string): string {
  * answer "can't parse entities" and drop the message. The answer matters more
  * than its formatting, so send it unformatted rather than lose it.
  */
-export async function sendReply(ctx: Context, text: string): Promise<void> {
+export async function sendReply(
+  ctx: Context,
+  text: string,
+  // Attached to the last chunk only — a keyboard on every chunk of a long
+  // answer would repeat it, and the last one is where a reply to it lands.
+  replyMarkup?: InlineKeyboardMarkup
+): Promise<void> {
   // Chunk the markdown (fence-aware), then convert each piece on its own — the
   // chunker guarantees balanced fences, so every chunk converts to valid HTML.
-  for (const chunk of chunkReply(text)) {
+  const chunks = chunkReply(text);
+  for (const [i, chunk] of chunks.entries()) {
+    const extra = i === chunks.length - 1 && replyMarkup ? { reply_markup: replyMarkup } : {};
     try {
-      await ctx.reply(toTelegramHtml(chunk), { parse_mode: 'HTML' });
+      await ctx.reply(toTelegramHtml(chunk), { parse_mode: 'HTML', ...extra });
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       if (!errorMsg.includes("can't parse entities")) throw error;
 
       console.warn('⚠️  HTML rejected, sending as plain text:', errorMsg);
-      await ctx.reply(chunk);
+      await ctx.reply(chunk, extra);
     }
   }
 }

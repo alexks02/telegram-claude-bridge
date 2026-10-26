@@ -236,6 +236,25 @@ export function forgetSession(key: string): void {
 }
 
 /**
+ * A short context dump a tab carries into the fresh session `forgetSession`
+ * just started — set on "🧹 New session", consumed by the next message.
+ *
+ * In memory only: it bridges one button press to the very next prompt, not
+ * worth surviving a restart for.
+ */
+export const pendingSeeds = new Map<string, string>();
+
+export function setPendingSeed(key: string, text: string): void {
+  pendingSeeds.set(key, text);
+}
+
+export function takePendingSeed(key: string): string | undefined {
+  const seed = pendingSeeds.get(key);
+  pendingSeeds.delete(key);
+  return seed;
+}
+
+/**
  * A restart wipes the idle timers, so quiet sessions are caught up on at start:
  * anything whose transcript has not been touched for the idle window is let go
  * of straight away. Otherwise a bridge that restarted overnight would come up

@@ -281,6 +281,36 @@ function readTail(file: string, bytes: number): string {
   }
 }
 
+/**
+ * The conversation's own opening — its first few human prompts.
+ *
+ * Read from the head, same as `describe`'s title: a handoff recap is one of
+ * the few places that cares what the conversation started out to do, not just
+ * where it got to, and the head is cheap to read even on a 50MB transcript.
+ */
+export function firstUserMessages(projectPath: string, id: string, count: number): string[] {
+  const file = join(historyDirFor(projectPath), `${id}.jsonl`);
+  if (!existsSync(file)) return [];
+
+  const messages: string[] = [];
+  for (const line of readHead(file).split('\n')) {
+    if (messages.length >= count) break;
+    if (!line.trim()) continue;
+
+    let row: Record<string, any>;
+    try {
+      row = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (row.type !== 'user' || row.isSidechain) continue;
+
+    const text = promptText(row.message);
+    if (text) messages.push(text);
+  }
+  return messages;
+}
+
 function readHead(file: string): string {
   const fd = openSync(file, 'r');
   try {

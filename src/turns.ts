@@ -7,9 +7,14 @@ import { sendAttachment } from './files.js';
 import { createProgressFeed, sendReply } from './reply.js';
 import { rateLimitFooter } from './limits.js';
 import { CancelledError, callClaudeWithContext } from './runner.js';
-import { scheduleIdlePark } from './sessionStore.js';
+import { scheduleIdlePark, sessionKeyFor, takePendingSeed } from './sessionStore.js';
 import { runQueues } from './queue.js';
 import type { Tab } from './types.js';
+
+/** The "🧹 New session" button under every answer — see commands.ts's `clr` action. */
+const clearSessionKeyboard = {
+  inline_keyboard: [[{ text: '🧹 New session', callback_data: 'clr' }]],
+};
 
 /** Run one request against a project: Claude call, then the reply in chunks. */
 export async function runTurn(ctx: Context, userMessage: string, tab: Tab): Promise<void> {
@@ -20,7 +25,13 @@ export async function runTurn(ctx: Context, userMessage: string, tab: Tab): Prom
   try {
     console.log(`\n📨 User (${tab.label} · ${project.name}): ${userMessage}`);
 
-    const response = await callClaudeWithContext(userMessage, tab, project, progress.add);
+    // Set by "🧹 New session": carries a short recap of the parted conversation
+    // into the fresh one it started, so the next message isn't the first thing
+    // the new session has ever heard about the task.
+    const seed = takePendingSeed(sessionKeyFor(tab, project));
+    const prompt = seed ? `${seed}\n\n---\n\n${userMessage}` : userMessage;
+
+    const response = await callClaudeWithContext(prompt, tab, project, progress.add);
     progress.close();
 
     console.log(`\n🤖 Claude: ${response.substring(0, 100)}...`);
@@ -36,7 +47,7 @@ export async function runTurn(ctx: Context, userMessage: string, tab: Tab): Prom
     const { text: reply, attachments } = extractAttachments(response);
     const limits = await rateLimitFooter(project.path);
     const footer = limits ? `\n\n${limits}` : '';
-    await sendReply(ctx, (reply || '(no text)') + footer);
+    await sendReply(ctx, (reply || '(no text)') + footer, clearSessionKeyboard);
 
     // Files come after the text, and a failed upload never fails the turn —
     // the answer is already delivered by this point.
