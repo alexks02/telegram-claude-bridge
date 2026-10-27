@@ -60,7 +60,7 @@ export const aliasSpec = process.env.ALIASES || '';
  * or on Windows (see .env.example).
  */
 export const claudeCli = process.env.CLAUDE_CLI || join(homedir(), '.local', 'bin', 'claude');
-export const claudeTimeoutMs = Number(process.env.CLAUDE_TIMEOUT_MS || 600000);
+export const claudeTimeoutMs = Number(process.env.CLAUDE_TIMEOUT_MS || 3600000);
 
 export const logFile = process.env.LOG_FILE || resolve(scriptDir, '..', 'bridge.log');
 /** Left behind by /restart so the process that comes up can confirm it worked. */

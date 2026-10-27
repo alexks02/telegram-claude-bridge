@@ -52,6 +52,25 @@ export function runClaudeCli(
     });
     onChild?.(child);
 
+    // TEMP DEBUG (remove once the long-silence hang is understood): a turn can
+    // legitimately run for many minutes with no stdout while a long background
+    // task is in flight, which looks identical in bridge.log to a hung/dead
+    // child. This heartbeat makes that distinction visible: "still alive, no
+    // output for Ns" means the child process itself is fine and Node is still
+    // receiving its stdout stream; total silence (no heartbeat lines at all)
+    // means the bridge's own Node process stopped running entirely.
+    const spawnedAt = Date.now();
+    let lastOutputAt = spawnedAt;
+    console.log(`🐛 [debug] spawned claude CLI pid=${child.pid} cwd=${cwd}`);
+    const heartbeat = setInterval(() => {
+      const sinceOutputS = Math.round((Date.now() - lastOutputAt) / 1000);
+      const ageS = Math.round((Date.now() - spawnedAt) / 1000);
+      console.log(
+        `🐛 [debug] heartbeat pid=${child.pid} alive, turn age=${ageS}s, no stdout for ${sinceOutputS}s, rss=${Math.round(process.memoryUsage().rss / 1e6)}MB`
+      );
+    }, 60_000);
+    heartbeat.unref();
+
     let stderr = '';
     let buffer = '';
     let result = '';
@@ -62,6 +81,7 @@ export function runClaudeCli(
 
     const timer = setTimeout(() => {
       timedOut = true;
+      console.log(`🐛 [debug] timeoutMs=${timeoutMs} elapsed — sending SIGTERM to pid=${child.pid}`);
       child.kill('SIGTERM');
     }, timeoutMs);
 
@@ -102,6 +122,7 @@ export function runClaudeCli(
     };
 
     child.stdout.on('data', (chunk) => {
+      lastOutputAt = Date.now();
       buffer += chunk;
       // A chunk can end mid-line, so keep the tail until its newline arrives
       const lines = buffer.split('\n');
@@ -117,13 +138,22 @@ export function runClaudeCli(
       }
     });
 
-    child.stderr.on('data', (chunk) => (stderr += chunk));
+    child.stderr.on('data', (chunk) => {
+      lastOutputAt = Date.now();
+      stderr += chunk;
+    });
     child.on('error', (error) => {
+      console.log(`🐛 [debug] pid=${child.pid} 'error' event: ${error.message}`);
       clearTimeout(timer);
+      clearInterval(heartbeat);
       reject(error);
     });
-    child.on('close', (code) => {
+    child.on('close', (code, signal) => {
+      console.log(
+        `🐛 [debug] pid=${child.pid} 'close' event: code=${code} signal=${signal} timedOut=${timedOut} ageS=${Math.round((Date.now() - spawnedAt) / 1000)}`
+      );
       clearTimeout(timer);
+      clearInterval(heartbeat);
       if (timedOut) {
         reject(new Error(`Claude CLI timed out after ${timeoutMs / 1000}s`));
         return;

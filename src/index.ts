@@ -34,6 +34,27 @@ process.on('unhandledRejection', (reason) => {
   console.error('❌ Unhandled rejection:', reason);
 });
 
+// TEMP DEBUG (remove once the long-silence hang is understood): without this,
+// an uncaught exception prints via Node's default handler straight to stderr
+// before the process exits — it lands in bridge.out but skips the timestamped,
+// structured bridge.log entirely, making it hard to correlate against the rest
+// of a session's timeline. This guarantees it's logged (with a timestamp) by
+// the same path as everything else before the process goes down.
+process.on('uncaughtException', (error) => {
+  console.error('💥 Uncaught exception (process will exit):', error.stack ?? error);
+  process.exit(1);
+});
+
+// TEMP DEBUG (remove once the long-silence hang is understood): proves the
+// bridge's own process is alive independently of whether a Claude turn is
+// producing output — if this stops appearing in bridge.log, the whole Node
+// process died (not just a per-turn child), which is a different bug class.
+setInterval(() => {
+  console.log(
+    `🐛 [debug] bridge alive, uptime=${Math.round(process.uptime())}s, rss=${Math.round(process.memoryUsage().rss / 1e6)}MB`
+  );
+}, 300_000).unref();
+
 registerCommandMenu().catch((error) =>
   console.warn('⚠️  Could not register command menu:', error.message)
 );
