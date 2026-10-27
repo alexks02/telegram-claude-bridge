@@ -84,6 +84,15 @@ export const ffmpegCli = process.env.FFMPEG_CLI || 'ffmpeg';
 /** Telegram's own cap is 4096; the rest is headroom for what we add around a chunk. */
 export const MAX_MESSAGE_CHARS = 3800;
 
+/**
+ * Telegram's own API is occasionally flaky (429 flood control, 502/503/504 on
+ * its end) — rare, but the one place it must not cost an answer is the final
+ * reply a whole run produced. `SEND_RETRY_ATTEMPTS` total tries, `SEND_RETRY_BASE_MS`
+ * the fixed backoff for a 5xx (429 instead waits whatever `retry_after` says).
+ */
+export const SEND_RETRY_ATTEMPTS = Number(process.env.SEND_RETRY_ATTEMPTS || 4);
+export const SEND_RETRY_BASE_MS = Number(process.env.SEND_RETRY_BASE_MS || 2000);
+
 export const PROGRESS_INTERVAL_MS = Number(process.env.PROGRESS_INTERVAL_MS || 4000);
 // Line and message budgets work together: a line is only clipped when it alone
 // is unreasonably long, and how many lines fit is decided when the message is

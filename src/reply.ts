@@ -1,10 +1,53 @@
 /** Getting text back into Telegram: chunking, fallbacks, and the live feed. */
 
-import { Context } from 'telegraf';
+import { Context, TelegramError } from 'telegraf';
 import type { InlineKeyboardMarkup } from 'telegraf/types';
-import { MAX_MESSAGE_CHARS, PROGRESS_INTERVAL_MS, PROGRESS_MAX_LINES } from './config.js';
+import {
+  MAX_MESSAGE_CHARS,
+  PROGRESS_INTERVAL_MS,
+  PROGRESS_MAX_LINES,
+  SEND_RETRY_ATTEMPTS,
+  SEND_RETRY_BASE_MS,
+} from './config.js';
 import { toTelegramHtml } from './format.js';
 import type { Project } from './types.js';
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Retry a Telegram API call through the API's own two transient failure modes:
+ * flood control (429, with Telegram naming the wait itself) and an outage on
+ * its end (502/503/504, where only a guess is possible). Anything else —
+ * a bad token, "can't parse entities", chat not found — is permanent and
+ * must surface immediately rather than burn through the retry budget.
+ *
+ * This exists for the one call whose failure is otherwise invisible: the
+ * final answer a whole run produced. A progress-feed edit skips this on
+ * purpose — losing one of twenty cosmetic updates is nothing, but losing the
+ * only reply a person is waiting on is everything.
+ */
+export async function withTelegramRetry<T>(send: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await send();
+    } catch (error) {
+      const retryable =
+        error instanceof TelegramError && (error.code === 429 || error.code >= 500);
+      if (!retryable || attempt >= SEND_RETRY_ATTEMPTS) throw error;
+
+      const waitMs =
+        error.code === 429 && error.parameters?.retry_after
+          ? error.parameters.retry_after * 1000 + 250
+          : SEND_RETRY_BASE_MS * attempt;
+      console.warn(
+        `⚠️  Telegram ${error.code} on send, retrying in ${Math.round(waitMs / 1000)}s ` +
+          `(attempt ${attempt}/${SEND_RETRY_ATTEMPTS}):`,
+        error.description
+      );
+      await sleep(waitMs);
+    }
+  }
+}
 
 /**
  * Split a reply into Telegram-sized pieces without breaking it mid-structure.
@@ -78,13 +121,13 @@ export async function sendReply(
   for (const [i, chunk] of chunks.entries()) {
     const extra = i === chunks.length - 1 && replyMarkup ? { reply_markup: replyMarkup } : {};
     try {
-      await ctx.reply(toTelegramHtml(chunk), { parse_mode: 'HTML', ...extra });
+      await withTelegramRetry(() => ctx.reply(toTelegramHtml(chunk), { parse_mode: 'HTML', ...extra }));
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       if (!errorMsg.includes("can't parse entities")) throw error;
 
       console.warn('⚠️  HTML rejected, sending as plain text:', errorMsg);
-      await ctx.reply(chunk, extra);
+      await withTelegramRetry(() => ctx.reply(chunk, extra));
     }
   }
 }

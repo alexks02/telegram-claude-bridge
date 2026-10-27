@@ -4,7 +4,7 @@ import { Context } from 'telegraf';
 import { MAX_ATTACHMENTS } from './config.js';
 import { extractAttachments } from './format.js';
 import { sendAttachment } from './files.js';
-import { createProgressFeed, sendReply } from './reply.js';
+import { createProgressFeed, sendReply, withTelegramRetry } from './reply.js';
 import { rateLimitFooter } from './limits.js';
 import { CancelledError, callClaudeWithContext } from './runner.js';
 import { scheduleIdlePark, sessionKeyFor, takePendingSeed } from './sessionStore.js';
@@ -37,11 +37,13 @@ export async function runTurn(ctx: Context, userMessage: string, tab: Tab): Prom
     console.log(`\n🤖 Claude: ${response.substring(0, 100)}...`);
 
     // The finished run's steps are already in the log, so the feed can go and
-    // leave the chat with just the question and the answer.
+    // leave the chat with just the question and the answer. Retried for the same
+    // reason as the reply below: a flaky Telegram moment here used to leave the
+    // progress feed frozen mid-run with no explanation and no answer following it.
     try {
-      await ctx.deleteMessage(statusMsg.message_id);
+      await withTelegramRetry(() => ctx.deleteMessage(statusMsg.message_id));
     } catch {
-      // Ignore if can't delete
+      // A stale progress message left behind is cosmetic — the answer below is not.
     }
 
     const { text: reply, attachments } = extractAttachments(response);
@@ -67,20 +69,25 @@ export async function runTurn(ctx: Context, userMessage: string, tab: Tab): Prom
   } catch (error) {
     progress.close();
     try {
-      await ctx.deleteMessage(statusMsg.message_id);
+      await withTelegramRetry(() => ctx.deleteMessage(statusMsg.message_id));
     } catch {
-      // Ignore if can't delete
+      // A stale progress message left behind is cosmetic — the answer below is not.
     }
 
     if (error instanceof CancelledError) {
       console.log(`🛑 ${tab.label} cancelled the run on ${project.name}`);
-      await ctx.reply('🛑 Cancelled.').catch(() => {});
+      await withTelegramRetry(() => ctx.reply('🛑 Cancelled.')).catch(() => {});
       return;
     }
 
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error('❌ Error:', errorMsg);
-    await ctx.reply(`❌ Error: ${errorMsg}`).catch(() => {});
+    // Last resort after the retries inside sendReply/withTelegramRetry are spent —
+    // one more attempt rather than one-shot, so a flaky Telegram moment (the
+    // original failure mode here) doesn't also swallow the error notice itself.
+    await withTelegramRetry(() => ctx.reply(`❌ Error: ${errorMsg}`)).catch((retryError) => {
+      console.error('❌ Could not deliver even the error notice:', retryError);
+    });
   }
 }
 
