@@ -78,6 +78,11 @@ export function runClaudeCli(
     let isError = false;
     let timedOut = false;
     let usage: RunUsage | undefined;
+    // The model can ask the Bash tool itself to background a command — but that
+    // only lives as long as this child process does, which ends the moment this
+    // turn replies. Flagged here so the reply can carry its own warning instead
+    // of trusting the model to remember and disclose this every time.
+    let usedBackgroundBash = false;
 
     const timer = setTimeout(() => {
       timedOut = true;
@@ -97,6 +102,9 @@ export function runClaudeCli(
               onProgress(
                 `🔧 ${describeToolCall(block.name, block.input, PROGRESS_LINE_CHARS, workspaceRoot)}`
               );
+              if (block.name === 'Bash' && block.input?.run_in_background === true) {
+                usedBackgroundBash = true;
+              }
             } else if (block.type === 'text' && block.text?.trim()) {
               onProgress(`💬 ${plainLine(block.text, PROGRESS_LINE_CHARS)}`);
             }
@@ -158,7 +166,7 @@ export function runClaudeCli(
         reject(new Error(`Claude CLI timed out after ${timeoutMs / 1000}s`));
         return;
       }
-      resolvePromise({ result, sessionId, isError, stderr, code, usage });
+      resolvePromise({ result, sessionId, isError, stderr, code, usage, usedBackgroundBash });
     });
 
     child.stdin.end();
@@ -261,7 +269,7 @@ Long-running commands (test suites, builds, anything past a minute or two):
     clearActiveChild(tab.key);
   }
 
-  const { result, sessionId, isError, stderr, code, usage } = run;
+  const { result, sessionId, isError, stderr, code, usage, usedBackgroundBash } = run;
 
   if (sessionId) rememberSession(sessionKeyFor(tab, project), sessionId);
   if (usage) recordUsage(tab.key, usage);
@@ -275,7 +283,18 @@ Long-running commands (test suites, builds, anything past a minute or two):
     console.warn(`⚠️  Claude reported an error result: ${result.slice(0, 200) || '(no text)'}`);
   }
 
-  if (result.trim()) return result.trim();
+  if (result.trim()) {
+    // The model is told not to promise a follow-up it can't deliver, but that's
+    // a request, not a guarantee — this catches it mechanically instead of
+    // trusting every run to have complied. `run_in_background` on a Bash call
+    // dies with this process the moment this reply is sent, whatever the reply
+    // claims about "waiting" or "reporting back".
+    const warning = usedBackgroundBash
+      ? '\n\n⚠️ A command above was backgrounded via the Bash tool itself, which dies ' +
+        'with this reply — nothing will follow up on its own. Ask again to check on it.'
+      : '';
+    return result.trim() + warning;
+  }
 
   throw new Error(explainEmptyClaudeReply(stderr, code, project));
 }

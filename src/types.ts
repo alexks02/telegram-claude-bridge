@@ -76,6 +76,8 @@ export interface ClaudeRun {
   stderr: string;
   code: number | null;
   usage?: RunUsage;
+  /** A Bash tool call this turn set `run_in_background: true` — see callClaudeWithContext. */
+  usedBackgroundBash: boolean;
 }
 
 /** What a single turn cost — pulled from the CLI's final `result` event. */
