@@ -196,9 +196,10 @@ Long-running commands (test suites, builds, anything past a minute or two):
 - Detach it from your own process instead: run it with
   \`nohup <command> > /tmp/some.log 2>&1 & disown\`, redirecting output to a
   file. That survives your process exiting.
-- Then check on it from a later message: tail/grep the log file, or
-  \`ps aux | grep <name>\` to confirm it's still alive. Never report a result
-  you haven't actually read from the log.`;
+- Then poll it: tail/grep the log file every ~10 seconds, or
+  \`ps aux | grep <name>\` to confirm it's still alive, until it's done or
+  you need to give up. Never report a result you haven't actually read from
+  the log.`;
 
   // Arguments are passed as an array, so the prompt is never parsed by a shell.
   // `--verbose` is what stream-json needs to emit per-step events under `-p`.
