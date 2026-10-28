@@ -213,7 +213,10 @@ Long-running commands (test suites, builds, anything past a minute or two):
   person "waiting, I'll report back" when nothing will actually come back
   until they write to you again. If a wait needs more than a few minutes,
   check once, say plainly what you found and that it's still running, and
-  let the person ping you again — don't promise to follow up on your own.`;
+  let the person ping you again — don't promise to follow up on your own.
+- ScheduleWakeup, or anything else that resumes "this conversation" later, is
+  disabled here for the same reason: there is no persistent session for it to
+  wake up — only this one-shot process, already gone by the time it would fire.`;
 
   // Arguments are passed as an array, so the prompt is never parsed by a shell.
   // `--verbose` is what stream-json needs to emit per-step events under `-p`.
@@ -224,6 +227,11 @@ Long-running commands (test suites, builds, anything past a minute or two):
     '--append-system-prompt', systemPrompt,
     '--output-format', 'stream-json',
     '--verbose',
+    // ScheduleWakeup resumes a /loop session later — there is no such session
+    // here, just this one-shot process, so it would promise a check-in that
+    // can never happen. Denied outright rather than relying on the model to
+    // remember that from prose alone.
+    '--disallowedTools', 'ScheduleWakeup',
     // Per-tab working style and model; omitted when they are the CLI default
     ...(mode && mode !== 'default' ? ['--permission-mode', mode] : []),
     ...(model && model !== 'default' ? ['--model', model] : []),
