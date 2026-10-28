@@ -97,7 +97,7 @@ export const PROGRESS_INTERVAL_MS = Number(process.env.PROGRESS_INTERVAL_MS || 4
 // Line and message budgets work together: a line is only clipped when it alone
 // is unreasonably long, and how many lines fit is decided when the message is
 // rendered.
-export const PROGRESS_MAX_LINES = Number(process.env.PROGRESS_MAX_LINES || 20);
+export const PROGRESS_MAX_LINES = Number(process.env.PROGRESS_MAX_LINES || 10);
 export const PROGRESS_LINE_CHARS = Number(process.env.PROGRESS_LINE_CHARS || 600);
 
 export const SESSION_LIST_DEFAULT = 10;
