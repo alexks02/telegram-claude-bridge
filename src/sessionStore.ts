@@ -99,7 +99,7 @@ export function parkIfIdle(tab: Tab): void {
   }
 
   // A run still working is not idle, whatever the timer thinks
-  if (isBusy(tab.project.path)) {
+  if (isBusy(tab.key)) {
     scheduleIdlePark(tab, 60000);
     return;
   }

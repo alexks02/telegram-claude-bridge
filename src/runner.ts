@@ -213,8 +213,10 @@ Sending files:
     : [];
 
   // Register the child so /cancel can kill it; clear it however this ends.
+  // Keyed by tab, not project: two tabs on the same project each run their
+  // own child process, and /cancel in one tab must not reach into the other.
   const track = (child: import('child_process').ChildProcess) =>
-    setActiveChild(project.path, child);
+    setActiveChild(tab.key, child);
 
   let run: ClaudeRun;
   try {
@@ -225,7 +227,7 @@ Sending files:
       undefined,
       track
     );
-    if (consumeCancelled(project.path)) throw new CancelledError();
+    if (consumeCancelled(tab.key)) throw new CancelledError();
 
     // A stored id can outlive the conversation it points at (cleared CLI state,
     // another machine). Losing history is better than refusing to answer.
@@ -234,10 +236,10 @@ Sending files:
       forgetSession(sessionKeyFor(tab, project));
       onProgress('↩️ Previous conversation was gone, starting a new one');
       run = await runClaudeCli(baseArgs, project.path, onProgress, undefined, track);
-      if (consumeCancelled(project.path)) throw new CancelledError();
+      if (consumeCancelled(tab.key)) throw new CancelledError();
     }
   } finally {
-    clearActiveChild(project.path);
+    clearActiveChild(tab.key);
   }
 
   const { result, sessionId, isError, stderr, code, usage } = run;

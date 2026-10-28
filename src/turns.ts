@@ -92,7 +92,8 @@ export async function runTurn(ctx: Context, userMessage: string, tab: Tab): Prom
 }
 
 /**
- * One conversation per project means one run at a time, so requests queue.
+ * One conversation per tab means one run at a time, so requests from the same
+ * tab queue.
  *
  * The handler must not await the run: Telegraf stops fetching updates until the
  * current handler settles, so awaiting a ten-minute task makes the bot ignore
@@ -100,20 +101,21 @@ export async function runTurn(ctx: Context, userMessage: string, tab: Tab): Prom
  */
 
 export function enqueueTurn(ctx: Context, userMessage: string, tab: Tab): boolean {
-  // Keyed by project, not by tab: two tabs on different projects run in
-  // parallel, but two tabs on the *same* repository take turns — parallel
-  // agents editing one working copy is how you get conflicts.
-  const project = tab.project;
-  const previous = runQueues.get(project.path);
+  // Keyed by tab, not by project: two topics on the same project now run in
+  // parallel instead of taking turns. That trades the old guarantee — one
+  // agent editing a working copy at a time — for topics not blocking each
+  // other; pointing two tabs at the same project is on the user to avoid if
+  // the overlapping edits would conflict.
+  const previous = runQueues.get(tab.key);
   const next = (previous ?? Promise.resolve())
     // A failed run must not poison the queue behind it
     .catch(() => {})
     .then(() => runTurn(ctx, userMessage, tab))
     .catch((error) => console.error('❌ Queued run failed:', error));
 
-  runQueues.set(project.path, next);
+  runQueues.set(tab.key, next);
   next.finally(() => {
-    if (runQueues.get(project.path) === next) runQueues.delete(project.path);
+    if (runQueues.get(tab.key) === next) runQueues.delete(tab.key);
     // The clock starts from the bot's reply, not the user's message: the quiet
     // window is time since the conversation last said anything, and while a run
     // is in flight there is no timer at all. A run answered, so start it now.

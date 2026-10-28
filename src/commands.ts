@@ -182,7 +182,7 @@ bot.command('status', async (ctx) => {
   // entryFor, not resumeFor: a session let go of must show as let go of,
   // rather than as no session at all.
   const entry = entryFor(tab, tab.project);
-  const busy = isBusy(tab.project.path) ? ' (a run is in flight)' : '';
+  const busy = isBusy(tab.key) ? ' (a run is in flight)' : '';
   const conversation = entry ? describeCurrent(tab, entry) : 'none yet';
   const mode = modeFor(tab);
   const model = modelFor(tab);
@@ -901,7 +901,7 @@ bot.command('mode', (ctx) => {
 bot.command('cancel', (ctx) => {
   if (!isOwner(ctx)) return;
   const tab = tabFor(ctx);
-  if (cancelRun(tab.project.path)) {
+  if (cancelRun(tab.key)) {
     console.log(`🛑 ${tab.label} requested cancel on ${tab.project.name}`);
     ctx.reply(`🛑 Stopping the run on ${tab.project.name}…`);
   } else {
