@@ -186,7 +186,19 @@ Sending files:
 - The path may be relative to the project root. It must live inside
   ${workspaceRoot} and be under 50 MB. Videos, images and documents all work.
 - Use it for artifacts worth looking at — a failing test's video or screenshot,
-  a generated report — instead of describing them or pasting them as text.`;
+  a generated report — instead of describing them or pasting them as text.
+
+Long-running commands (test suites, builds, anything past a minute or two):
+- Each message you answer runs as its own one-shot CLI process that exits the
+  moment you reply. A tool call's own "run in background" only lasts as long
+  as that process is alive — reply "started in the background, waiting" and
+  the process exits right after, killing whatever you backgrounded with it.
+- Detach it from your own process instead: run it with
+  \`nohup <command> > /tmp/some.log 2>&1 & disown\`, redirecting output to a
+  file. That survives your process exiting.
+- Then check on it from a later message: tail/grep the log file, or
+  \`ps aux | grep <name>\` to confirm it's still alive. Never report a result
+  you haven't actually read from the log.`;
 
   // Arguments are passed as an array, so the prompt is never parsed by a shell.
   // `--verbose` is what stream-json needs to emit per-step events under `-p`.
