@@ -197,9 +197,15 @@ Long-running commands (test suites, builds, anything past a minute or two):
   \`nohup <command> > /tmp/some.log 2>&1 & disown\`, redirecting output to a
   file. That survives your process exiting.
 - Then poll it: tail/grep the log file every ~10 seconds, or
-  \`ps aux | grep <name>\` to confirm it's still alive, until it's done or
-  you need to give up. Never report a result you haven't actually read from
-  the log.`;
+  \`ps aux | grep <name>\` to confirm it's still alive. Never report a result
+  you haven't actually read from the log.
+- Do this in plain foreground bash calls, never via the Bash tool's own
+  "run in background" — that flag just repeats the same mistake one level up:
+  the poll loop itself dies with your process, and you end up telling the
+  person "waiting, I'll report back" when nothing will actually come back
+  until they write to you again. If a wait needs more than a few minutes,
+  check once, say plainly what you found and that it's still running, and
+  let the person ping you again — don't promise to follow up on your own.`;
 
   // Arguments are passed as an array, so the prompt is never parsed by a shell.
   // `--verbose` is what stream-json needs to emit per-step events under `-p`.
